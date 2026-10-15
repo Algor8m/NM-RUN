@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>NM Run - Network Test Harness (Person 3)</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    body {
+      background: #11141a;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    h2, h3 { color: #58a6ff; margin-top: 0; }
+    .card {
+      background: #1e222b;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    input, button {
+      background: #2b313c;
+      color: #fff;
+      border: 1px solid #484f58;
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin-right: 8px;
+    }
+    button { cursor: pointer; background: #238636; border: none; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary { background: #388bfd; }
+    .btn-danger { background: #da3633; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .badge-ready { background: #238636; }
+    .badge-waiting { background: #d29922; color: #000; }
+    #log {
+      height: 200px;
+      overflow-y: scroll;
+      background: #0d1117;
+      font-family: monospace;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+    }
+    .racer-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid #30363d;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>NM Run — Person 3 Network Harness</h2>
+  <div class="card">
+    <div>
+      <input id="serverUrl" value="http://localhost:3000" style="width: 260px;" />
+      <input id="playerName" value="Racer1" placeholder="Player Name" />
+      <button id="btnConnect" onclick="handleConnect()">Connect</button>
+      <span id="connStatus" style="margin-left: 10px; color: #8b949e;">Disconnected</span>
+    </div>
+  </div>
+
+  <div class="card" id="roomPanel" style="display:none;">
+    <div>
+      <button class="btn-secondary" onclick="handleCreate()">Host New Room</button>
+      <input id="joinCode" placeholder="CODE" style="width: 80px; text-transform: uppercase;" />
+      <button onclick="handleJoin()">Join Room</button>
+      <button class="btn-danger" onclick="handleLeave()">Leave</button>
+    </div>
+  </div>
+
+  <div class="card" id="lobbyPanel" style="display:none;">
+    <h3 id="roomTitle">Room: ----</h3>
+    <div id="playerList"></div>
+    <div style="margin-top: 14px;">
+      <button id="btnReady" class="btn-secondary" onclick="toggleReady()">Toggle Ready</button>
+      <button id="btnStart" style="display:none;" onclick="handleStartRace()">Start Race</button>
+      <button id="btnSolo" style="display:none; background:#8957e5;" onclick="handleStartSolo()">Test Solo</button>
+    </div>
+  </div>
+
+  <div class="card" id="racePanel" style="display:none;">
+    <h3>Live Server-Authoritative Standings</h3>
+    <div id="countdownBox" style="font-size: 24px; color: #f0883e; margin-bottom: 8px;"></div>
+    <div id="rankingsList"></div>
+    <div style="margin-top: 12px;">
+      <button onclick="sendSimulatedMove()">Simulate Checkpoint + Progress</button>
+      <button onclick="collectSamplePickup()">Collect pickup_0</button>
+      <button id="btnRematch" style="display:none;" class="btn-secondary" onclick="handleRematch()">Rematch</button>
+    </div>
+  </div>
+
+  <h3>Live Packet Logs</h3>
+  <div id="log"></div>
+
+  <script type="module">
+    import { NetworkClient } from "./NetworkClient.js";
+
+    const client = new NetworkClient();
+    window.client = client;
+
+    let isReady = false;
+    let simulatedCp = 0;
+    let simulatedProgress = 0;
+
+    function log(msg) {
+      const box = document.getElementById("log");
+      const el = document.createElement("div");
+      el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      box.appendChild(el);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    window.handleConnect = async () => {
+      const url = document.getElementById("serverUrl").value;
+      try {
+        await client.connect(url);
+        document.getElementById("connStatus").textContent = "Connected (" + client.playerId + ")";
+        document.getElementById("connStatus").style.color = "#3fb950";
+        document.getElementById("roomPanel").style.display = "block";
+        log("Connected to server successfully");
+      } catch (e) {
+        log("Failed to connect: " + e.message);
+      }
+    };
+
+    window.handleCreate = () => {
+      const name = document.getElementById("playerName").value;
+      client.createRoom(name);
+    };
+
+    window.handleJoin = () => {
+      const name = document.getElementById("playerName").value;
+      const code = document.getElementById("joinCode").value;
+      client.joinRoom(code, name);
+    };
+
+    window.handleLeave = () => {
+      client.leaveRoom();
+      document.getElementById("lobbyPanel").style.display = "none";
+      document.getElementById("racePanel").style.display = "none";
+      log("Left room");
+    };
+
+    window.toggleReady = () => {
+      isReady = !isReady;
+      client.setReady(isReady);
+    };
+
+    window.handleStartRace = () => {
+      client.requestStartRace(false);
+    };
+
+    window.handleStartSolo = () => {
+      client.requestStartRace(true);
+    };
+
+    window.handleRematch = () => {
+      client.requestRematch();
+    };
+
+    window.sendSimulatedMove = () => {
+      simulatedProgress += 100;
+      if (simulatedProgress % 200 === 0 && simulatedCp < 11) {
+        simulatedCp++;
+      }
+      client.sendPlayerState({
+        position: { x: simulatedProgress * 0.1, y: 0, z: -simulatedProgress },
+        rotation: 0,
+        speed: 15,
+        boosting: false,
+        shieldActive: false,
+        endurance: 100,
+        boost: 50,
+        lastCheckpointIndex: simulatedCp,
+        progress: simulatedProgress
+      });
+      log(`Sent state: checkpoint=${simulatedCp}, progress=${simulatedProgress}`);
+    };
+
+    window.collectSamplePickup = () => {
+      client.collectPickup("pickup_0");
+      log("Requested collection for pickup_0");
+    };
+
+    client.on("lobby:update", (data) => {
+      document.getElementById("lobbyPanel").style.display = "block";
+      document.getElementById("roomTitle").textContent = `Room: ${data.roomCode} (${data.playerCount}/4 players)`;
+      
+      const list = document.getElementById("playerList");
+      list.innerHTML = "";
+      for (const p of data.players) {
+        const item = document.createElement("div");
+        item.className = "racer-row";
+        item.innerHTML = `
+          <span>${p.name} ${p.isHost ? "<strong>(Host)</strong>" : ""} (Slot ${p.slot})</span>
+          <span class="badge ${p.isReady ? "badge-ready" : "badge-waiting"}">${p.isReady ? "Ready" : "Not Ready"}</span>
+        `;
+        list.appendChild(item);
+      }
+
+      const isHost = client.isHost;
+      document.getElementById("btnStart").style.display = isHost ? "inline-block" : "none";
+      document.getElementById("btnSolo").style.display = isHost ? "inline-block" : "none";
+      log("Lobby updated: " + JSON.stringify(data.players.map(p => p.name)));
+    });
+
+    client.on("race:countdown", (data) => {
+      document.getElementById("racePanel").style.display = "block";
+      document.getElementById("countdownBox").textContent = `Starting in: ${data.count}`;
+      log(`Countdown: ${data.count}`);
+    });
+
+    client.on("race:start", () => {
+      document.getElementById("countdownBox").textContent = "GO!";
+      log("Race started");
+    });
+
+    client.on("race:ranking", (data) => {
+      const list = document.getElementById("rankingsList");
+      list.innerHTML = "";
+      for (const r of data.rankings) {
+        const row = document.createElement("div");
+        row.className = "racer-row";
+        row.innerHTML = `<span>#${r.rank} ${r.name} (CP: ${r.checkpoint}, Prog: ${Math.round(r.progress)})</span> <span>${r.finished ? "Finished in " + r.finishTime + "s" : "Racing"}</span>`;
+        list.appendChild(row);
+      }
+    });
+
+    client.on("pickup:state", (data) => {
+      log(`Pickup ${data.pickupId} state: active=${data.active}`);
+    });
+
+    client.on("race:results", (data) => {
+      log("Official Results: " + JSON.stringify(data.results));
+      if (client.isHost) {
+        document.getElementById("btnRematch").style.display = "inline-block";
+      }
+    });
+
+    client.on("server:error", (data) => {
+      alert("Server Error: " + data.message);
+      log("Error: " + data.message);
+    });
+  </script>
+</body>
+</html>
