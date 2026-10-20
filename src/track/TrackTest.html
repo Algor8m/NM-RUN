@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NM Run — Person 1 Track Test</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, Segoe UI, Arial, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #101820; color: #f3f5f7; overflow: hidden; }
+    #view { position: fixed; inset: 0; }
+    #panel { position: fixed; z-index: 2; top: 14px; left: 14px; width: min(360px, calc(100vw - 28px)); padding: 16px; border: 1px solid #42515d; border-radius: 12px; background: #111d26ee; box-shadow: 0 10px 35px #0007; }
+    h1 { margin: 0 0 8px; font-size: 18px; } p { margin: 5px 0 12px; color: #c4d0d8; font-size: 12px; line-height: 1.45; }
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+    .stat { padding: 9px; background: #1d2d39; border-radius: 8px; font-size: 12px; color: #c5d4de; }
+    .stat strong { display: block; margin-top: 4px; font-size: 17px; color: white; }
+    .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    button { border: 1px solid #536b7a; background: #253b49; color: white; border-radius: 7px; padding: 9px; cursor: pointer; font-weight: 600; }
+    button:hover { background: #315568; } button.active { background: #176b62; border-color: #43c8ad; }
+    #log { max-height: 125px; overflow: auto; margin-top: 10px; padding: 8px; border-radius: 7px; background: #0a1218; font: 11px/1.5 Consolas, monospace; white-space: pre-wrap; }
+    #hint { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); padding: 8px 12px; background: #111d26dd; border-radius: 8px; color: #d7e4ec; font-size: 12px; }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <div id="view"></div>
+  <section id="panel">
+    <h1>NM Run — Track Test</h1>
+    <p>Person 1 standalone harness · Procedural track module · No player or network mock is used.</p>
+    <div class="stats">
+      <div class="stat">Route length<strong id="length">Calculating…</strong></div>
+      <div class="stat">Checkpoint gates<strong id="checkpoints">—</strong></div>
+      <div class="stat">Obstacle bounds<strong id="obstacles">—</strong></div>
+      <div class="stat">Pickup spawns<strong id="pickups">—</strong></div>
+    </div>
+    <div class="controls">
+      <button id="debugBtn">Toggle centerline/debug</button>
+      <button id="topBtn">Top-down view</button>
+      <button id="startBtn">Show start slots</button>
+      <button id="pickupBtn">Toggle first pickup</button>
+      <button id="checkBtn">Run progress checks</button>
+      <button id="resetBtn">Reset camera</button>
+    </div>
+    <div id="log">Starting track module…</div>
+  </section>
+  <div id="hint">Drag to orbit · Scroll to zoom · Right-drag to pan</div>
+  <script type="module" src="./track-test.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "nm-run-client",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "check": "node --check src/main.js && node --check src/track/TrackWorld.js && node --check src/track/TrackBuilder.js && node --check src/track/TrackData.js && node --check src/network/NetworkClient.js && node --check src/ui/LobbyUI.js && node --check src/ui/HUD.js && node --check src/ui/ResultsUI.js && node --check src/ui/SettingsUI.js && node --check src/audio/AudioManager.js && node --check src/effects/CameraEffects.js"
+  },
+  "dependencies": {
+    "socket.io-client": "4.8.1",
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "vite": "6.4.1"
+  }
+}
