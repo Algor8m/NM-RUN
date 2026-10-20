@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NM Run — Person 2 Player Test</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#8cc9ee;font:14px system-ui,sans-serif}canvas{display:block}#panel{position:fixed;top:10px;left:10px;max-width:380px;max-height:calc(100vh - 40px);overflow:auto;color:#fff;background:#101827eF;padding:12px 14px;border-radius:10px;line-height:1.4;box-shadow:0 6px 24px #0004}#panel strong{font-size:15px}#panel button,#panel select{margin:5px 4px 0 0;padding:7px 9px;border:0;border-radius:5px;cursor:pointer}#panel select{max-width:180px}#panel pre{font:12px/1.4 Consolas,monospace;white-space:pre-wrap;margin:7px 0 0} .hint{color:#cbd5e1;font-size:12px}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","../shared/config.js":"./test-only/config.mock.js"}}</script>
+</head>
+<body>
+<div id="panel"><strong>NM RUN — PERSON 2 ALL-STAGES TEST HARNESS</strong><br><span class="hint">TEST-ONLY track, obstacle bounds and pickup mocks. Not the real P1 track.</span><hr>
+Character: <select id="character-select" aria-label="Choose character"><option>Tanishi</option><option>Yash</option><option>Anjali</option><option>Ritam</option></select><br>
+W / ↑ accelerate · S / ↓ brake · A/D steer · Space or Jump button · Left Ctrl dodge · Left Shift boost<br>
+<button id="btn-jump">JUMP</button><button id="btn-controls">Controls: ON</button><button id="btn-reset">Reset</button><button id="btn-boost">Grant boost</button><button id="btn-shield">Grant shield</button><button id="btn-tests">Run all mechanic checks</button><br><pre id="test-results">Automated checks have not run yet.</pre>
+<pre id="status"></pre><pre id="state"></pre><span class="hint">Tip: drive through the red debris box to test slowdown/endurance. Use “Run all mechanic checks” for repeatable checks.</span></div>
+<script type="module" src="./player-test.js?v=20261020-fix1"></script>
+</body></html>
