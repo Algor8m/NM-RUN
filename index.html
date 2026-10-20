@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#111827" />
+  <meta name="description" content="NM Run — a low-poly campus racing prototype." />
+  <title>NM Run | Campus Circuit</title>
+  <link rel="stylesheet" href="/styles/main.css" />
+  <script>
+    // Override for a deployed server. This is a public URL, never a secret.
+    window.NM_RUN_SERVER_URL = window.NM_RUN_SERVER_URL || '';
+  </script>
+  <script type="module" src="/src/main.js"></script>
+</head>
+<body>
+  <main id="app" class="app-shell">
+    <section id="game-viewport" class="game-viewport" aria-label="3D race view">
+      <div id="renderer-mount" class="renderer-mount"></div>
+      <div class="topbar">
+        <a class="brand" href="#home" aria-label="NM Run home"><span class="brand-mark">NM</span><span>RUN<span class="brand-dot">.</span></span></a>
+        <div class="connection-pill"><span id="connection-dot" class="status-dot"></span><span id="connection-label">Not connected</span></div>
+        <button id="settings-open" class="icon-button" type="button" aria-label="Open settings">⚙</button>
+      </div>
+      <div id="viewport-hint" class="viewport-hint">Campus Circuit · One lap · Up to 4 racers</div>
+      <section id="lobby-panel" class="panel lobby-panel" aria-labelledby="menu-title">
+        <p class="eyebrow">NMIMS HYDERABAD · ARCADE CIRCUIT</p>
+        <h1 id="menu-title">Own the <span>campus.</span></h1>
+        <p class="panel-copy">A fast, friendly race through a fictional low-poly campus. Create a room or join your friends.</p>
+        <label class="field-label" for="player-name">Racer name</label>
+        <input id="player-name" maxlength="20" autocomplete="nickname" placeholder="Enter your name" value="Racer" />
+        <div class="button-row">
+          <button id="create-room" class="button button-primary" type="button">Create room</button>
+        </div>
+        <div class="join-row">
+          <input id="room-code-input" maxlength="8" autocomplete="off" placeholder="ROOM CODE" aria-label="Room code" />
+          <button id="join-room" class="button button-secondary" type="button">Join</button>
+        </div>
+        <p id="lobby-error" class="inline-error" role="alert" aria-live="polite"></p>
+        <div class="lobby-foot"><span class="mini-status"></span><span id="lobby-summary">Connect to the game server to begin.</span></div>
+      </section>
+      <section id="room-panel" class="panel room-panel hidden" aria-labelledby="room-title">
+        <div class="room-heading"><div><p class="eyebrow">PRIVATE LOBBY</p><h2 id="room-title">Race room</h2></div><div class="room-code-block"><span>ROOM CODE</span><strong id="room-code">----</strong><button id="copy-room-code" type="button" class="text-button">Copy</button></div></div>
+        <div class="player-list-heading"><span>RACERS</span><span id="player-count">0 / 4</span></div>
+        <ul id="player-list" class="player-list"><li class="empty-player">Waiting for room data…</li></ul>
+        <div class="button-row room-actions"><button id="ready-toggle" class="button button-secondary" type="button">I'm ready</button><button id="start-race" class="button button-primary" type="button" disabled>Start race</button></div>
+        <p id="room-error" class="inline-error" role="alert" aria-live="polite"></p>
+        <button id="leave-room" class="text-button leave-button" type="button">Leave room</button>
+      </section>
+      <section id="countdown-panel" class="countdown-panel hidden" aria-live="assertive"><span id="countdown-value">3</span><p>GET READY</p></section>
+      <section id="race-hud" class="race-hud hidden" aria-label="Race status">
+        <div class="hud-top"><div class="placement-card"><span class="hud-caption">POSITION</span><strong id="hud-position">—<small> / 4</small></strong></div><div class="race-clock"><span class="hud-caption">RACE TIME</span><strong id="hud-timer">00:00.0</strong></div><div class="segment-card"><span class="hud-caption">CURRENT ZONE</span><strong id="hud-segment">Campus entrance</strong></div><button id="pause-open" class="icon-button pause-button" type="button" aria-label="Pause menu">Ⅱ</button></div>
+        <div class="hud-bottom"><div class="meter-card"><div class="meter-label"><span>ENDURANCE</span><strong id="endurance-value">100%</strong></div><div class="meter-track"><span id="endurance-fill" class="meter-fill endurance-fill" style="width:100%"></span></div></div><div class="meter-card"><div class="meter-label"><span>BOOST</span><strong id="boost-value">0%</strong></div><div class="meter-track"><span id="boost-fill" class="meter-fill boost-fill" style="width:0%"></span></div></div><div id="race-message" class="race-message" aria-live="polite">Race starting…</div></div>
+      </section>
+      <section id="standings-panel" class="standings-panel hidden" aria-label="Live standings"><p class="eyebrow">LIVE STANDINGS</p><ol id="standings-list"></ol></section>
+      <section id="pause-panel" class="panel pause-panel hidden" aria-labelledby="pause-title"><p class="eyebrow">RACE MENU</p><h2 id="pause-title">Take a breath.</h2><p>Pausing this menu does not pause the shared online race.</p><button id="resume-race" class="button button-primary" type="button">Back to race</button><button id="pause-settings" class="button button-secondary" type="button">Settings</button><button id="pause-leave" class="text-button" type="button">Leave race</button></section>
+      <section id="results-panel" class="panel results-panel hidden" aria-labelledby="results-title"><p class="eyebrow">CHECKERED FLAG</p><h2 id="results-title">Race complete</h2><p id="results-subtitle" class="panel-copy">Server-verified finish order</p><ol id="results-list" class="results-list"></ol><div class="button-row"><button id="rematch-request" class="button button-primary" type="button">Race again</button><button id="return-menu" class="button button-secondary" type="button">Return to menu</button></div><p id="results-error" class="inline-error" role="alert"></p></section>
+      <section id="settings-panel" class="panel settings-panel hidden" aria-labelledby="settings-title"><div class="settings-heading"><div><p class="eyebrow">PREFERENCES</p><h2 id="settings-title">Settings</h2></div><button id="settings-close" class="icon-button" type="button" aria-label="Close settings">×</button></div><label class="setting-row"><span><strong>Visual quality</strong><small>Reduce shadows and pixel ratio on slower laptops.</small></span><select id="quality-select"><option value="high">High</option><option value="balanced" selected>Balanced</option><option value="low">Low</option></select></label><label class="setting-row"><span><strong>Camera effects</strong><small>Boost FOV and impact shake.</small></span><input id="effects-toggle" type="checkbox" checked /></label><label class="setting-row"><span><strong>Sound effects</strong><small>Generated by Web Audio after your first interaction.</small></span><input id="audio-toggle" type="checkbox" checked /></label><div class="controls-box"><strong>CONTROLS</strong><div><kbd>W</kbd> / <kbd>↑</kbd><span>Accelerate</span></div><div><kbd>S</kbd> / <kbd>↓</kbd><span>Brake</span></div><div><kbd>A</kbd> <kbd>D</kbd> / arrows<span>Steer</span></div><div><kbd>SPACE</kbd><span>Jump</span></div><div><kbd>CTRL</kbd><span>Quick dodge</span></div><div><kbd>SHIFT</kbd><span>Boost</span></div><div><kbd>ESC</kbd><span>Pause menu</span></div></div><p class="muted-note">Sound starts only after a user gesture. The online race continues while menus are open.</p></section>
+      <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+      <div class="bottom-brand"><span>NM RUN</span><span>PROTOTYPE · BUILD 0.1</span></div>
+    </section>
+  </main>
+</body>
+</html>
