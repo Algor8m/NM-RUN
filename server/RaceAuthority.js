@@ -1,22 +1,25 @@
 export class RaceAuthority {
-  constructor(roomCode, totalCheckpoints = 12, pickupDefs = []) {
+  constructor(roomCode, totalCheckpoints = 12, pickupDefs = [], totalLaps = 2) {
     this.roomCode = roomCode;
     this.totalCheckpoints = totalCheckpoints;
+    this.totalLaps = totalLaps;
     this.raceState = "idle"; // countdown, racing, finished
     this.startTime = 0;
     this.racers = new Map();
     this.finishOrder = [];
     this.rankings = [];
+    this.io = null;
+    this.dnfTimeout = null;
     
-    // pickups map: id -> { active, respawnAt, type }
+    // pickups map: id -> { active, respawnAt, type, respawnSeconds }
     this.pickups = new Map();
     for (const p of pickupDefs) {
       this.pickups.set(p.id, {
         id: p.id,
-        type: p.type || "boost",
+        type: p.type || (p.id?.includes('shield') ? 'shield' : 'boost'),
         active: true,
         respawnAt: 0,
-        respawnSeconds: p.respawnSeconds || 10
+        respawnSeconds: p.respawnSeconds || 8
       });
     }
   }
@@ -25,6 +28,10 @@ export class RaceAuthority {
     this.racers.clear();
     this.finishOrder = [];
     this.rankings = [];
+    if (this.dnfTimeout) {
+      clearTimeout(this.dnfTimeout);
+      this.dnfTimeout = null;
+    }
 
     for (const p of playersList) {
       this.racers.set(p.id, {
@@ -32,6 +39,7 @@ export class RaceAuthority {
         name: p.name || "Racer",
         slot: p.slot || 0,
         character: p.character || "Ritam",
+        lap: 1,
         lastCheckpointIndex: -1,
         progress: 0,
         finished: false,
@@ -46,6 +54,7 @@ export class RaceAuthority {
   }
 
   startCountdown(io, onComplete) {
+    this.io = io;
     this.raceState = "countdown";
     let secondsLeft = 3;
 
@@ -61,7 +70,8 @@ export class RaceAuthority {
         this.startTime = Date.now();
         io.to(this.roomCode).emit("race:start", {
           startTime: this.startTime,
-          totalCheckpoints: this.totalCheckpoints
+          totalCheckpoints: this.totalCheckpoints,
+          totalLaps: this.totalLaps
         });
         if (onComplete) onComplete();
       }
@@ -93,15 +103,23 @@ export class RaceAuthority {
       racer.speed = Number(payload.speed);
     }
 
-    // Update progress and checkpoints if provided
+    // Update progress, laps and checkpoints
     if (Number.isFinite(Number(payload?.progress))) {
       racer.progress = Number(payload.progress);
     }
+    if (Number.isInteger(payload?.lap)) {
+      racer.lap = payload.lap;
+    }
     if (Number.isInteger(payload?.lastCheckpointIndex)) {
       racer.lastCheckpointIndex = payload.lastCheckpointIndex;
-      if (racer.lastCheckpointIndex >= this.totalCheckpoints - 1 && !racer.finished) {
-        this.recordFinish(playerId);
-      }
+    }
+
+    // Check race finish condition across all laps
+    const isFinished = Boolean(payload?.finished) ||
+      (racer.lap >= this.totalLaps && racer.lastCheckpointIndex >= this.totalCheckpoints - 1);
+
+    if (isFinished && !racer.finished) {
+      this.recordFinish(playerId);
     }
 
     // Update chosen character if transmitted
@@ -121,8 +139,10 @@ export class RaceAuthority {
       speed: racer.speed,
       boosting: Boolean(payload?.boosting),
       shieldActive: Boolean(payload?.shieldActive),
+      lap: racer.lap,
       progress: racer.progress,
-      lastCheckpointIndex: racer.lastCheckpointIndex
+      lastCheckpointIndex: racer.lastCheckpointIndex,
+      finished: racer.finished
     };
   }
 
@@ -139,14 +159,55 @@ export class RaceAuthority {
       time: racer.finishTime
     });
 
+    // Notify room of first finisher and start a 30s DNF countdown for others
+    if (this.finishOrder.length === 1 && this.racers.size > 1 && this.io) {
+      this.io.to(this.roomCode).emit("race:first_finisher", {
+        winnerName: racer.name,
+        timeoutSeconds: 30
+      });
+
+      this.dnfTimeout = setTimeout(() => {
+        for (const [id, r] of this.racers) {
+          if (!r.finished) {
+            r.finished = true;
+            r.finishTime = "DNF";
+            this.finishOrder.push({
+              id: r.id,
+              name: r.name,
+              rank: this.finishOrder.length + 1,
+              time: "DNF"
+            });
+          }
+        }
+        this.raceState = "finished";
+      }, 30000);
+    }
+
     if (this.finishOrder.length === this.racers.size) {
+      if (this.dnfTimeout) {
+        clearTimeout(this.dnfTimeout);
+        this.dnfTimeout = null;
+      }
       this.raceState = "finished";
     }
   }
 
   collectPickup(socketId, pickupId) {
-    const pickup = this.pickups.get(pickupId);
-    if (!pickup || !pickup.active) {
+    if (!pickupId) return { success: false };
+
+    let pickup = this.pickups.get(pickupId);
+    if (!pickup) {
+      pickup = {
+        id: pickupId,
+        type: pickupId.includes('shield') ? 'shield' : 'boost',
+        active: true,
+        respawnAt: 0,
+        respawnSeconds: 8
+      };
+      this.pickups.set(pickupId, pickup);
+    }
+
+    if (!pickup.active) {
       return { success: false };
     }
 
@@ -182,16 +243,24 @@ export class RaceAuthority {
       if (a.finished) return -1;
       if (b.finished) return 1;
 
+      // Real-time ranking: higher lap is ahead
+      const lapA = a.lap || 1;
+      const lapB = b.lap || 1;
+      if (lapB !== lapA) {
+        return lapB - lapA;
+      }
+
       if (b.lastCheckpointIndex !== a.lastCheckpointIndex) {
         return b.lastCheckpointIndex - a.lastCheckpointIndex;
       }
-      return b.progress - a.progress;
+      return (b.progress || 0) - (a.progress || 0);
     });
 
     this.rankings = list.map((r, index) => ({
       id: r.id,
       name: r.name,
       rank: index + 1,
+      lap: r.lap || 1,
       checkpoint: r.lastCheckpointIndex,
       progress: r.progress,
       finished: r.finished,

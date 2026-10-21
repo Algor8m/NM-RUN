@@ -125,25 +125,62 @@ export class PlayerController {
     const cfg=GAME_CONFIG, t=PLAYER_TUNING;
     const bounds=typeof trackData?.getObstacleBounds==="function"?trackData.getObstacleBounds():Array.isArray(trackData?.obstacleBounds)?trackData.obstacleBounds:[];
     const overlapping=new Set();
+
     for (const b of bounds) {
       if (!b || b.active===false || !b.min || !b.max) continue;
       const r=t.PLAYER_RADIUS, x=this.position.x, z=this.position.z, feet=this.position.y;
       const hit=x+r>=b.min.x && x-r<=b.max.x && z+r>=b.min.z && z-r<=b.max.z && feet+t.PLAYER_HEIGHT>=b.min.y && feet<=b.max.y;
       if (!hit) continue;
-      const id=String(b.id ?? `${b.kind}:${b.min.x}:${b.min.z}`); overlapping.add(id);
+
+      // Solid collision response: push player out along the shallowest penetration axis
+      const overlapLeft=(x+r)-b.min.x;
+      const overlapRight=b.max.x-(x-r);
+      const overlapBottom=(z+r)-b.min.z;
+      const overlapTop=b.max.z-(z-r);
+
+      const minOverlapX=overlapLeft<overlapRight?-overlapLeft:overlapRight;
+      const minOverlapZ=overlapBottom<overlapTop?-overlapBottom:overlapTop;
+
+      if (Math.abs(minOverlapX)<Math.abs(minOverlapZ)) {
+        this.position.x+=minOverlapX;
+      } else {
+        this.position.z+=minOverlapZ;
+      }
+
+      const id=String(b.id ?? `${b.kind}:${b.min.x}:${b.min.z}`);
+      overlapping.add(id);
+
+      // Solid barrier collision immediately reduces forward speed
+      this.speed=Math.max(0,this.speed*0.1);
+      this.slowdownRemaining=Math.max(this.slowdownRemaining,cfg.OBSTACLE_SLOWDOWN_TIME);
+
       if (this._overlappingObstacles.has(id)) continue;
       this._hitRetry.set(id,t.COLLISION_RETRY_SECONDS);
-      if (this.shieldActive) { this.shieldActive=false; this.shieldRemaining=0; emit("shield-absorbed",{obstacleId:id,state:this.getState()}); }
-      else {
-        this.slowdownRemaining=Math.max(this.slowdownRemaining,cfg.OBSTACLE_SLOWDOWN_TIME); this.speed=Math.min(this.speed,cfg.BASE_SPEED*cfg.OBSTACLE_SLOWDOWN_FACTOR);
-        if (b.kind==="debris" || b.kind==="brick" || b.kind==="pipe" || b.kind==="plank") {
-          this.endurance=clamp(this.endurance-cfg.ENDURANCE_DEBRIS_DAMAGE,0,cfg.ENDURANCE_MAX); this.regenDelay=cfg.ENDURANCE_REGEN_DELAY;
-          emit("damage",{obstacleId:id,kind:b.kind,endurance:this.endurance,state:this.getState()});
-          if (this.endurance<=0) { this.stumbleRemaining=cfg.STUMBLE_DURATION; this.speed*=0.25; emit("stumble",this.getState()); }
-        } else emit("obstacle-hit",{obstacleId:id,kind:b.kind,state:this.getState()});
+
+      if (this.shieldActive) {
+        this.shieldActive=false;
+        this.shieldRemaining=0;
+        emit("shield-absorbed",{obstacleId:id,state:this.getState()});
+      } else {
+        // Crash into solid obstacle: lose endurance points
+        const damage=cfg.ENDURANCE_DEBRIS_DAMAGE || 25;
+        this.endurance=clamp(this.endurance-damage,0,cfg.ENDURANCE_MAX);
+        this.regenDelay=cfg.ENDURANCE_REGEN_DELAY;
+        emit("damage",{obstacleId:id,kind:b.kind,damage,endurance:this.endurance,state:this.getState()});
+        emit("obstacle-hit",{obstacleId:id,kind:b.kind,state:this.getState()});
+        if (this.endurance<=0.5) {
+          this.endurance=0;
+          this.stumbleRemaining=cfg.STUMBLE_DURATION;
+          this.speed=0;
+          emit("stumble",this.getState());
+        }
       }
     }
-    for (const [id,remaining] of this._hitRetry) { if (!overlapping.has(id)) this._hitRetry.delete(id); else this._hitRetry.set(id,Math.max(0,remaining-dt)); }
+
+    for (const [id,remaining] of this._hitRetry) {
+      if (!overlapping.has(id)) this._hitRetry.delete(id);
+      else this._hitRetry.set(id,Math.max(0,remaining-dt));
+    }
     this._overlappingObstacles=overlapping;
   }
   _processPickups(trackData,emit) {

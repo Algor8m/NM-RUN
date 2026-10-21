@@ -1,4 +1,5 @@
 import { CLIENT_EVENTS, SERVER_EVENTS } from '../shared/events.js';
+import { GAME_CONFIG } from '../shared/config.js';
 
 const $ = (id) => document.getElementById(id);
 function on(target, event, fn) { target?.addEventListener(event, fn); }
@@ -77,7 +78,7 @@ export class LobbyUI {
     });
 
     on($('start-race'), 'click', () => {
-      this.network?.requestStartRace?.();
+      this.network?.requestStartRace?.(GAME_CONFIG.DEBUG_ALLOW_SOLO);
     });
 
     on($('copy-room-code'), 'click', async () => {
@@ -135,7 +136,8 @@ export class LobbyUI {
     if (!$('room-panel')?.classList.contains('hidden') && message) {
       this.error('room-error', message);
     }
-    if ($('lobby-summary')) {$('lobby-summary').textContent = this.connected
+    if ($('lobby-summary')) {
+      $('lobby-summary').textContent = this.connected
         ? 'Server connected. Ready to race.'
         : message || 'Connect to the game server to begin.';
     }
@@ -239,11 +241,12 @@ export class LobbyUI {
 
     const startBtn = $('start-race');
     if (startBtn) {
-      const allReady = players.length >= 2 && players.every(p => Boolean(p.isReady ?? p.ready));
+      const minPlayers = GAME_CONFIG.DEBUG_ALLOW_SOLO ? 1 : 2;
+      const allReady = players.length >= minPlayers && players.every(p => Boolean(p.isReady ?? p.ready));
       startBtn.disabled = !this.isHost || !allReady;
       startBtn.title = !this.isHost
         ? 'Only the room host can start'
-        : players.length < 2
+        : players.length < minPlayers
         ? 'At least two human players are required'
         : !allReady
         ? 'All connected players must be ready'

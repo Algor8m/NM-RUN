@@ -1,8 +1,8 @@
 /** Canonical NM Run tuning and client configuration. Coordinate convention: Three.js Y is up; route progress follows the ordered track centerline. */
 export const GAME_CONFIG = Object.freeze({
   GAME_NAME: 'NM Run', MAX_PLAYERS: 4, MIN_PLAYERS_TO_START: 2,
-  DEBUG_ALLOW_SOLO: false, SERVER_PORT: 3000, NETWORK_SEND_RATE_HZ: 25,
-  COUNTDOWN_SECONDS: 3, LAPS: 1,
+  DEBUG_ALLOW_SOLO: true, SERVER_PORT: 3000, NETWORK_SEND_RATE_HZ: 25,
+  COUNTDOWN_SECONDS: 3, LAPS: 2,
   BASE_SPEED: 14, BOOST_SPEED: 21, ACCELERATION: 30, TURN_RATE_DEG: 140,
   JUMP_VELOCITY: 8, GRAVITY: 22, DODGE_DISTANCE: 3, DODGE_DURATION: 0.25,
   DODGE_COOLDOWN: 1.5, ENDURANCE_MAX: 100, ENDURANCE_DEBRIS_DAMAGE: 25,

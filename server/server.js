@@ -3,11 +3,14 @@ import http from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 import { LobbyManager } from "./LobbyManager.js";
 import { RaceAuthority } from "./RaceAuthority.js";
 
 dotenv.config();
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const port = process.env.PORT || 3000;
 const allowedOrigins = process.env.CLIENT_ORIGIN
   ? process.env.CLIENT_ORIGIN.split(",")
@@ -16,6 +19,10 @@ const allowedOrigins = process.env.CLIENT_ORIGIN
 const app = express();
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
+
+// Serve static client files so the game can be accessed directly at http://localhost:3000
+const clientRoot = path.join(__dirname, "..");
+app.use(express.static(clientRoot));
 
 // minimal health check
 app.get("/health", (req, res) => {
@@ -33,12 +40,26 @@ const io = new Server(httpServer, {
 const lobbyManager = new LobbyManager({ minPlayers: 2, maxPlayers: 4 });
 const raceAuthorities = new Map(); // roomCode -> RaceAuthority instance
 
-// default deterministic pickups
-const defaultPickups = Array.from({ length: 16 }, (_, i) => ({
-  id: `pickup_${i}`,
-  type: i % 4 === 0 ? "shield" : "boost",
-  respawnSeconds: 10
-}));
+// default deterministic pickups + track defined pickups
+const defaultPickups = [
+  ...Array.from({ length: 16 }, (_, i) => ({
+    id: `pickup_${i}`,
+    type: i % 4 === 0 ? "shield" : "boost",
+    respawnSeconds: 8
+  })),
+  { id: 'boost-01', type: 'boost', respawnSeconds: 8 },
+  { id: 'shield-01', type: 'shield', respawnSeconds: 8 },
+  { id: 'boost-02', type: 'boost', respawnSeconds: 8 },
+  { id: 'boost-03', type: 'boost', respawnSeconds: 8 },
+  { id: 'shield-02', type: 'shield', respawnSeconds: 8 },
+  { id: 'boost-04', type: 'boost', respawnSeconds: 8 },
+  { id: 'shield-03', type: 'shield', respawnSeconds: 8 },
+  { id: 'boost-05', type: 'boost', respawnSeconds: 8 },
+  { id: 'boost-06', type: 'boost', respawnSeconds: 8 },
+  { id: 'shield-04', type: 'shield', respawnSeconds: 8 },
+  { id: 'boost-07', type: 'boost', respawnSeconds: 8 },
+  { id: 'shield-05', type: 'shield', respawnSeconds: 8 },
+];
 
 // Helper to broadcast personalized lobby updates to every player in a room
 function broadcastLobbyUpdate(roomCode) {
@@ -115,7 +136,7 @@ io.on("connection", (socket) => {
     room.status = "countdown";
     broadcastLobbyUpdate(currentRoomCode);
 
-    const authority = new RaceAuthority(currentRoomCode, 12, defaultPickups);
+    const authority = new RaceAuthority(currentRoomCode, 12, defaultPickups, 2);
     authority.initializeRacers([...room.players.values()]);
     raceAuthorities.set(currentRoomCode, authority);
 
@@ -150,7 +171,7 @@ io.on("connection", (socket) => {
     const authority = raceAuthorities.get(currentRoomCode);
     if (!authority) return;
 
-    const pickupId = payload?.pickupId;
+    const pickupId = payload?.pickupId || payload?.id;
     const res = authority.collectPickup(socket.id, pickupId);
     if (res.success) {
       io.to(currentRoomCode).emit("pickup:state", {
@@ -218,12 +239,13 @@ setInterval(() => {
       for (const pId of respawned) {
         io.to(roomCode).emit("pickup:state", { pickupId: pId, active: true });
       }
+    }
 
-      if (authority.raceState === "finished") {
-        io.to(roomCode).emit("race:results", {
-          results: authority.finishOrder
-        });
-      }
+    if (authority.raceState === "finished" && !authority.resultsEmitted) {
+      authority.resultsEmitted = true;
+      io.to(roomCode).emit("race:results", {
+        results: authority.finishOrder
+      });
     }
   }
 }, 40);

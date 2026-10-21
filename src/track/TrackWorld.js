@@ -12,11 +12,17 @@ export class TrackWorld {
     this.builder = new TrackBuilder();
     this.scene = null;
     this.pickupActive = new Map(PICKUP_DEFINITIONS.map(p => [p.id, true]));
+    this.pickupRespawnTimers = new Map();
     this.obstacleActive = new Map(OBSTACLE_DEFINITIONS.map(o => [o.id, true]));
     this.routePoints = this.builder.getRoutePoints();
     this.checkpoints = this.#makeCheckpointDefinitions();
     this.obstacleBounds = this.#makeObstacleBounds();
-    this.pickupSpawns = PICKUP_DEFINITIONS.map(p => ({ id: p.id, type: p.type, position: { x: p.x, y: p.y, z: p.z }, respawnSeconds: p.respawnSeconds }));
+    this.pickupSpawns = PICKUP_DEFINITIONS.map(p => ({
+      id: p.id,
+      type: p.type,
+      position: { x: p.x, y: p.y, z: p.z },
+      respawnSeconds: p.respawnSeconds || 8
+    }));
     this.totalLength = this.#calculateLength(this.routePoints);
     this.startTransforms = this.#makeStartTransforms();
     this.zoneBoundaries = TRACK_ZONES;
@@ -48,7 +54,58 @@ export class TrackWorld {
     this.pickupActive.set(id, next);
     const mesh = this.builder.getPickupMeshes().get(id);
     if (mesh) mesh.visible = next;
+
+    if (!next) {
+      // Schedule random respawn for continuous power-up availability
+      const spawn = this.pickupSpawns.find(p => p.id === id);
+      const delay = (spawn?.respawnSeconds || 8) * (0.8 + Math.random() * 0.4);
+      this.pickupRespawnTimers.set(id, delay);
+    } else {
+      this.pickupRespawnTimers.delete(id);
+    }
     return true;
+  }
+
+  respawnPickupRandomly(id) {
+    const spawn = this.pickupSpawns.find(p => p.id === id);
+    if (!spawn || !this.routePoints || this.routePoints.length < 5) return;
+
+    // Pick a random route point along the road (excluding right at the starting line)
+    const minIdx = 4;
+    const maxIdx = Math.max(minIdx + 1, this.routePoints.length - 4);
+    const randIdx = Math.floor(minIdx + Math.random() * (maxIdx - minIdx));
+    const pt = this.routePoints[randIdx];
+    const next = this.routePoints[randIdx + 1] || this.routePoints[randIdx - 1];
+
+    const dx = next.x - pt.x;
+    const dz = next.z - pt.z;
+    const len = Math.hypot(dx, dz) || 1;
+
+    // Place randomly within the safe asphalt road width (-5.5 to +5.5)
+    const lateral = (Math.random() - 0.5) * 11;
+    const posX = Math.round((pt.x + (-dz / len) * lateral) * 10) / 10;
+    const posZ = Math.round((pt.z + (dx / len) * lateral) * 10) / 10;
+    const posY = 1.2;
+
+    // Randomize type: 70% boost, 30% shield
+    const newType = Math.random() < 0.7 ? 'boost' : 'shield';
+
+    spawn.position.x = posX;
+    spawn.position.y = posY;
+    spawn.position.z = posZ;
+    spawn.type = newType;
+
+    const mesh = this.builder.getPickupMeshes().get(id);
+    if (mesh) {
+      mesh.position.set(posX, posY, posZ);
+      mesh.visible = true;
+      if (mesh.material) {
+        mesh.material.color.setHex(newType === 'boost' ? 0x36c8ff : 0x9d79ff);
+      }
+    }
+
+    this.pickupActive.set(id, true);
+    this.pickupRespawnTimers.delete(id);
   }
 
   setObstacleActive(id, active) {
@@ -84,10 +141,38 @@ export class TrackWorld {
   update(deltaSeconds) {
     if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) return;
     const time = performance.now() * 0.001;
+
+    // Update respawn timers and randomly spawn power ups
+    for (const [id, remaining] of this.pickupRespawnTimers.entries()) {
+      const nextTime = remaining - deltaSeconds;
+      if (nextTime <= 0) {
+        this.respawnPickupRandomly(id);
+      } else {
+        this.pickupRespawnTimers.set(id, nextTime);
+      }
+    }
+
+    // Ensure a healthy density of power-ups continuously spawn
+    let activeCount = 0;
+    for (const active of this.pickupActive.values()) {
+      if (active) activeCount++;
+    }
+    if (activeCount < 8 && this.pickupSpawns.length > 0) {
+      for (const spawn of this.pickupSpawns) {
+        if (!this.pickupActive.get(spawn.id)) {
+          this.respawnPickupRandomly(spawn.id);
+          activeCount++;
+          if (activeCount >= 10) break;
+        }
+      }
+    }
+
     for (const [id, mesh] of this.builder.getPickupMeshes()) {
       if (this.pickupActive.get(id)) {
         mesh.rotation.y += deltaSeconds * 1.5;
-        mesh.position.y = (PICKUP_DEFINITIONS.find(p => p.id === id)?.y ?? 1.5) + Math.sin(time * 2.2 + mesh.position.z) * 0.18;
+        const spawn = this.pickupSpawns.find(p => p.id === id);
+        const baseY = spawn?.position?.y ?? 1.2;
+        mesh.position.y = baseY + Math.sin(time * 2.2 + mesh.position.z) * 0.18;
       }
     }
   }

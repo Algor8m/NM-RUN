@@ -31,8 +31,10 @@ const app = {
   quality: 'balanced',
   previousBoosting: false,
   currentLap: 1,
-  totalLaps: 2,
+  totalLaps: GAME_CONFIG.LAPS || 2,
   lastCheckpointIndex: -1,
+  localFinished: false,
+  localFinishTime: null,
   dnfInterval: null
 };
 
@@ -113,7 +115,6 @@ function setupRenderer() {
   app.scene.add(sun);
 
   cameraEffects = new CameraEffects(app.camera);
-  // BUG 2 & 3 FIX: Removed addBootstrapBackdrop() so there is NO dark green overlapping patch.
   window.addEventListener('resize', resizeRenderer);
 }
 
@@ -162,7 +163,6 @@ async function loadPlayer() {
     const validCharacters = ['Tanishi', 'Yash', 'Anjali', 'Ritam'];
     const typedName = $('player-name')?.value?.trim() || 'Racer';
 
-    // BUG 1 FIX: Selected avatar directly determines player skin
     const dropdownChar = $('avatar-select')?.value;
     const chosenCharacter = validCharacters.find(c => c.toLowerCase() === (dropdownChar || '').toLowerCase()) || 'Ritam';
 
@@ -188,6 +188,33 @@ async function loadPlayer() {
     if (typeof app.player.setCharacter === 'function') {
       app.player.setCharacter(chosenCharacter);
     }
+
+    // Attach collision and pickup gameplay listeners
+    app.player.on('damage', (data) => {
+      audio?.debrisHit();
+      cameraEffects?.hit(0.25);
+      hud?.message('CRASH! -25 Endurance!', 1200);
+    });
+
+    app.player.on('stumble', () => {
+      audio?.debrisHit();
+      cameraEffects?.hit(0.35);
+      hud?.message('OUT OF ENDURANCE! STUMBLING!', 1500);
+    });
+
+    app.player.on('shield-absorbed', () => {
+      audio?.obstacleHit();
+      cameraEffects?.hit(0.14);
+      hud?.message('SHIELD ABSORBED IMPACT!', 1500);
+    });
+
+    app.player.on('pickup', (data) => {
+      audio?.tone({ frequency: 540, endFrequency: 960, duration: 0.16, type: 'triangle', volume: 0.3 });
+      hud?.message(data.type === 'boost' ? '+35% BOOST!' : 'SHIELD ACTIVATED (8s)!', 1500);
+      if (app.network?.collectPickup) {
+        app.network.collectPickup(data.id);
+      }
+    });
 
     if (app.player.mesh && !app.scene.children.includes(app.player.mesh)) {
       app.scene.add(app.player.mesh);
@@ -253,7 +280,6 @@ async function setupNetwork() {
       lobby.setConnection('disconnected', `Disconnected: ${reason || ''}`);
     });
 
-    // BUG 1 FIX: Synchronize local player's model with server-confirmed character
     subscribe(app.network, SERVER_EVENTS.LOBBY_UPDATE, payload => {
       app.localPlayerId = payload?.playerId ?? payload?.selfId ?? payload?.you?.id ?? app.network.playerId ?? app.localPlayerId;
       if (payload?.you?.slot !== undefined) {
@@ -283,10 +309,14 @@ async function setupNetwork() {
     });
 
     subscribe(app.network, SERVER_EVENTS.RACE_START, payload => {
-      $('countdown-panel')?.classList.add('hidden');$('dnf-banner')?.classList.add('hidden');
+      $('countdown-panel')?.classList.add('hidden');
+      $('dnf-banner')?.classList.add('hidden');
       app.raceStarted = true;
       app.currentLap = 1;
+      app.totalLaps = GAME_CONFIG.LAPS || 2;
       app.lastCheckpointIndex = -1;
+      app.localFinished = false;
+      app.localFinishTime = null;
 
       const lapEl = $('hud-lap');
       if (lapEl) lapEl.textContent = `1 / ${app.totalLaps}`;
@@ -307,7 +337,16 @@ async function setupNetwork() {
     });
 
     subscribe(app.network, SERVER_EVENTS.PLAYER_STATE, payload => handleRemoteState(payload));
-    subscribe(app.network, SERVER_EVENTS.RACE_RANKING, payload => hud?.setRankings(payload, app.localPlayerId));
+
+    subscribe(app.network, 'pickup:state', payload => {
+      if (payload?.pickupId) {
+        app.track?.setPickupActive(payload.pickupId, payload.active);
+      }
+    });
+
+    subscribe(app.network, SERVER_EVENTS.RACE_RANKING, payload => {
+      hud?.setRankings(payload, app.localPlayerId);
+    });
 
     subscribe(app.network, 'race:first_finisher', payload => {
       const banner = $('dnf-banner');
@@ -366,8 +405,38 @@ function getFormattedInput() {
   };
 }
 
+function completeRace() {
+  if (app.localFinished) return;
+  app.localFinished = true;
+
+  const elapsed = hud?.elapsed || ((performance.now() - (hud?.startedAt || performance.now())) / 1000);
+  app.localFinishTime = Number(elapsed).toFixed(2);
+
+  audio?.finish();
+  hud?.message('RACE COMPLETE! 2 LAPS FINISHED!', 4000);
+
+  // Send state with finished: true immediately
+  sendStateIfDue(performance.now(), true);
+
+  // If server does not broadcast results (or playing solo/offline), show results after 2 seconds
+  setTimeout(() => {
+    if (!app.raceStarted) return;
+    app.raceStarted = false;
+    clearInterval(app.dnfInterval);
+    $('dnf-banner')?.classList.add('hidden');
+    hud?.stop();
+    results?.show([
+      {
+        rank: 1,
+        name: $('player-name')?.value || 'Racer',
+        time: app.localFinishTime
+      }
+    ]);
+  }, 2200);
+}
+
 function updateCheckpointsAndLaps(pos) {
-  if (!app.raceStarted || !pos) return;
+  if (!app.raceStarted || !pos || app.localFinished) return;
 
   const nextIdx = (app.lastCheckpointIndex + 1) % CHECKPOINTS.length;
   const targetCp = CHECKPOINTS[nextIdx];
@@ -377,16 +446,88 @@ function updateCheckpointsAndLaps(pos) {
     const dz = targetCp.z - pos.z;
     const dist = Math.hypot(dx, dz);
 
-    if (dist < 22.0) {
-      if (app.lastCheckpointIndex === CHECKPOINTS.length - 1 && nextIdx === 0) {
-        app.currentLap += 1;
-        audio?.lapComplete();
-        const lapEl = $('hud-lap');
-        if (lapEl) lapEl.textContent = `${Math.min(app.currentLap, app.totalLaps)} / ${app.totalLaps}`;
-        hud?.message(`LAP ${app.currentLap}!`, 2000);
+    if (dist < 24.0) {
+      if (nextIdx === 11) {
+        // Checkpoint 11 is the finish line gate
+        if (app.currentLap < app.totalLaps) {
+          // Completed Lap 1 -> Start Lap 2
+          app.currentLap += 1;
+          app.lastCheckpointIndex = 11;
+          audio?.lapComplete();
+          const lapEl = $('hud-lap');
+          if (lapEl) lapEl.textContent = `${app.currentLap} / ${app.totalLaps}`;
+          hud?.message(`FINAL LAP! (Lap ${app.currentLap} / ${app.totalLaps})`, 2500);
+        } else {
+          // Completed Lap 2 (all laps done!) -> RACE END
+          app.lastCheckpointIndex = 11;
+          completeRace();
+        }
+      } else {
+        app.lastCheckpointIndex = nextIdx;
       }
-      app.lastCheckpointIndex = nextIdx;
     }
+  }
+}
+
+function updateRealtimeRankings() {
+  const localId = app.localPlayerId || app.network?.playerId || 'local';
+  const lapFraction = Math.max(0, (app.currentLap || 1) - 1);
+  const totalUnits = app.totalLaps * CHECKPOINTS.length;
+  const completedUnits = (lapFraction * CHECKPOINTS.length) + (app.lastCheckpointIndex >= 0 ? app.lastCheckpointIndex + 1 : 0);
+  const localProg = app.localFinished ? 100 : Math.min(99.9, Math.max(0, (completedUnits / totalUnits) * 100));
+
+  const racers = [
+    {
+      id: localId,
+      playerId: localId,
+      name: $('player-name')?.value || 'Racer',
+      lap: app.currentLap || 1,
+      lastCheckpointIndex: app.lastCheckpointIndex,
+      progress: localProg,
+      finished: Boolean(app.localFinished),
+      finishTime: app.localFinishTime,
+      isLocal: true
+    }
+  ];
+
+  for (const [id, remote] of app.remotePlayers.entries()) {
+    const st = stateOf(remote);
+    const lap = Number.isInteger(st.lap) ? st.lap : 1;
+    const cp = Number.isInteger(st.lastCheckpointIndex) ? st.lastCheckpointIndex : -1;
+    const prog = Number.isFinite(Number(st.progress)) ? Number(st.progress) : 0;
+    racers.push({
+      id,
+      playerId: id,
+      name: remote.name || st.name || 'Racer',
+      lap,
+      lastCheckpointIndex: cp,
+      progress: prog,
+      finished: Boolean(st.finished),
+      finishTime: st.finishTime,
+      isLocal: false
+    });
+  }
+
+  racers.sort((a, b) => {
+    if (a.finished && b.finished) {
+      return parseFloat(a.finishTime || 0) - parseFloat(b.finishTime || 0);
+    }
+    if (a.finished) return -1;
+    if (b.finished) return 1;
+
+    if (b.lap !== a.lap) return b.lap - a.lap;
+    if (b.lastCheckpointIndex !== a.lastCheckpointIndex) return b.lastCheckpointIndex - a.lastCheckpointIndex;
+    return (b.progress || 0) - (a.progress || 0);
+  });
+
+  racers.forEach((r, idx) => {
+    r.rank = idx + 1;
+  });
+
+  hud?.setRankings(racers, localId);
+  const me = racers.find(r => r.isLocal);
+  if (me) {
+    hud?.setPosition(me.rank);
   }
 }
 
@@ -466,36 +607,40 @@ function bindGlobalControls() {
   });
 
   $('resume-race')?.addEventListener('click', () => showPause(false));
-  $('pause-settings')?.addEventListener('click', () => settings.toggle(true));$('pause-leave')?.addEventListener('click', () => {
+  $('pause-settings')?.addEventListener('click', () => settings.toggle(true));
+  $('pause-leave')?.addEventListener('click', () => {
     app.network?.leaveRoom?.();
     showPause(false);
     app.raceStarted = false;
     audio?.stopMusic();
     lobby.showMenu();
   });
-  $('rematch-request')?.addEventListener('click', () => audio.activate());$('return-menu')?.addEventListener('click', () => {
+  $('rematch-request')?.addEventListener('click', () => audio.activate());
+  $('return-menu')?.addEventListener('click', () => {
     app.raceStarted = false;
     audio?.stopMusic();
     lobby.showMenu();
   });
 }
 
-function sendStateIfDue(now) {
-  if (!app.raceStarted || !app.network?.sendPlayerState || now - app.lastNetworkSend < 1000 / GAME_CONFIG.NETWORK_SEND_RATE_HZ) return;
+function sendStateIfDue(now, force = false) {
+  if ((!app.raceStarted && !force) || !app.network?.sendPlayerState) return;
+  if (!force && now - app.lastNetworkSend < 1000 / GAME_CONFIG.NETWORK_SEND_RATE_HZ) return;
   const state = stateOf(app.player);
   if (!state || !Object.keys(state).length) return;
 
-  // BUG 1 FIX: Always broadcast the exact assigned avatar name
   const selectedChar = app.player?.selectedCharacter || $('avatar-select')?.value || 'Ritam';
   state.name = $('player-name')?.value || 'Racer';
   state.character = selectedChar;
   state.lastCheckpointIndex = app.lastCheckpointIndex;
   state.lap = app.currentLap;
+  state.finished = Boolean(app.localFinished);
+  state.finishTime = app.localFinishTime;
 
   const lapFraction = Math.max(0, app.currentLap - 1);
   const totalUnits = app.totalLaps * CHECKPOINTS.length;
-  const completedUnits = (lapFraction * CHECKPOINTS.length) + Math.max(0, app.lastCheckpointIndex);
-  state.progress = Math.min(99.9, Math.max(0, (completedUnits / totalUnits) * 100));
+  const completedUnits = (lapFraction * CHECKPOINTS.length) + (app.lastCheckpointIndex >= 0 ? app.lastCheckpointIndex + 1 : 0);
+  state.progress = app.localFinished ? 100 : Math.min(99.9, Math.max(0, (completedUnits / totalUnits) * 100));
 
   app.network.sendPlayerState(state);
   app.lastNetworkSend = now;
@@ -520,6 +665,10 @@ function frame(now) {
     if (pos) {
       updateCheckpointsAndLaps(pos);
       cameraEffects?.update(dt, pos, safeYaw(app.player), Boolean(state.boosting));
+    }
+
+    if (app.raceStarted) {
+      updateRealtimeRankings();
     }
 
     hud?.update(dt, state);
