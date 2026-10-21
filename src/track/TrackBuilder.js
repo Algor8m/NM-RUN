@@ -20,7 +20,7 @@ function addBox(parent, { x, y, z, width, height, depth, color, name = '', rotat
 }
 
 function sampleAnchors(anchors, subdivisions = 10) {
-  const curve = new THREE.CatmullRomCurve3(anchors.map(p => new THREE.Vector3(p.x, p.y, p.z)), false, 'catmullrom', 0.35);
+  const curve = new THREE.CatmullRomCurve3(anchors.map(p => new THREE.Vector3(p.x, p.y, p.z)), true, 'catmullrom', 0.35);
   const points = curve.getPoints((anchors.length - 1) * subdivisions);
   return points;
 }
@@ -99,15 +99,15 @@ export class TrackBuilder {
   }
 
   #buildGround() {
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(420, 1580), material(0x7bbd78));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(460, 1250), material(0x7bbd78));
     ground.rotation.x = -Math.PI / 2;
-    ground.position.set(0, -0.55, 700);
+    ground.position.set(-10, -0.55, 535);
     ground.receiveShadow = true;
     ground.name = 'CampusGround';
     this.root.add(ground);
-    const outer = new THREE.Mesh(new THREE.PlaneGeometry(650, 1800), material(0x8bcf84));
+    const outer = new THREE.Mesh(new THREE.PlaneGeometry(700, 1400), material(0x8bcf84));
     outer.rotation.x = -Math.PI / 2;
-    outer.position.set(0, -0.62, 700);
+    outer.position.set(-10, -0.62, 535);
     this.root.add(outer);
   }
 
@@ -324,6 +324,26 @@ export class TrackBuilder {
         mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(1.2, 0), material(0x8e8b84));
         mesh.scale.set(item.width / 2, item.height / 1.6, item.depth / 2);
         mesh.position.set(item.x, item.height / 2, item.z);
+      } else if (item.kind === 'tree') {
+        mesh = new THREE.Group();
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.42, item.height * 0.52, 6), material(0x765034));
+        trunk.position.y = item.height * 0.26; trunk.castShadow = true; mesh.add(trunk);
+        const crown = new THREE.Mesh(new THREE.DodecahedronGeometry(item.width * 0.62, 0), material(0x2f8b48));
+        crown.position.y = item.height * 0.72; crown.scale.set(1, 1.12, 1); crown.castShadow = true; mesh.add(crown);
+        mesh.position.set(item.x, 0, item.z);
+      } else if (item.kind === 'rock') {
+        mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(1, 0), material(0x777b7c));
+        mesh.scale.set(item.width * 0.52, item.height * 0.58, item.depth * 0.52);
+        mesh.position.set(item.x, item.height * 0.48, item.z);
+      } else if (item.kind === 'construction') {
+        mesh = new THREE.Group();
+        const block = new THREE.Mesh(new THREE.BoxGeometry(item.width, item.height, item.depth), material(0xd99a39));
+        block.position.y = item.height / 2; block.castShadow = true; mesh.add(block);
+        for (const offset of [-item.width * 0.28, item.width * 0.28]) {
+          const stripe = new THREE.Mesh(new THREE.BoxGeometry(item.width * 0.12, item.height * 0.9, item.depth + 0.03), material(0xf4e8c9));
+          stripe.position.set(offset, item.height / 2, 0); mesh.add(stripe);
+        }
+        mesh.position.set(item.x, 0, item.z);
       } else if (item.kind === 'pipe') {
         mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, item.width, 8), material(0x8799a5));
         mesh.rotation.z = Math.PI / 2; mesh.position.set(item.x, item.height / 2, item.z);

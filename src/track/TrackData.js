@@ -18,23 +18,16 @@ export const TRACK_CONFIG = Object.freeze({
 // Route is authored as connected centreline anchors. TrackBuilder interpolates
 // between them to create a smooth continuous ribbon.
 export const CENTERLINE_ANCHORS = Object.freeze([
-  // Entrance avenue and start grid.
-  { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 76.5 },
-  // Sweep past the signature academic block and its landscaped forecourt.
-  { x: 21.6, y: 0, z: 135 }, { x: 59.4, y: 0, z: 198 },
-  { x: 73.8, y: 0, z: 270 }, { x: 54, y: 0, z: 328.5 },
-  // Curve around the central lawn and checkerboard walkways.
-  { x: 4.5, y: 0, z: 378 }, { x: -52.2, y: 0, z: 423 },
-  { x: -79.2, y: 0, z: 490.5 }, { x: -70.2, y: 0, z: 558 },
-  // Construction plots and a long tree-lined campus road.
-  { x: -28.8, y: 0, z: 612 }, { x: 28.8, y: 0, z: 661.5 },
-  { x: 70.2, y: 0, z: 729 }, { x: 82.8, y: 0, z: 801 },
-  // Sports complex: courts, running track and spectator shade.
-  { x: 58.5, y: 0, z: 868.5 }, { x: 10.8, y: 0, z: 922.5 },
-  // Open green and return along the campus buildings.
-  { x: -40.5, y: 0, z: 985.5 }, { x: -55.8, y: 0, z: 1057.5 },
-  { x: -25.2, y: 0, z: 1125 }, { x: 25.2, y: 0, z: 1188 },
-  { x: 40.5, y: 0, z: 1260 }, { x: 16.2, y: 0, z: 1332 },
+  // Closed campus circuit: start/finish is at the entrance avenue. The curve
+  // closes from the final anchor back to the first without a duplicate point.
+  { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 95 },
+  { x: 25, y: 0, z: 185 }, { x: 82, y: 0, z: 245 },
+  { x: 112, y: 0, z: 360 }, { x: 105, y: 0, z: 570 },
+  { x: 125, y: 0, z: 790 }, { x: 88, y: 0, z: 960 },
+  { x: 15, y: 0, z: 1080 }, { x: -95, y: 0, z: 1040 },
+  { x: -150, y: 0, z: 900 }, { x: -155, y: 0, z: 690 },
+  { x: -125, y: 0, z: 490 }, { x: -95, y: 0, z: 310 },
+  { x: -60, y: 0, z: 180 }, { x: -35, y: 0, z: 75 },
 ]);
 
 // Segment ranges are normalized route progress. The sports ground is a
@@ -57,19 +50,50 @@ export const CHECKPOINTS = Object.freeze(Array.from({ length: 12 }, (_, index) =
 
 // Stable obstacle IDs and deterministic world positions. Bounds are generated
 // from these records by TrackWorld and exported as plain numeric objects.
+function makeGeneratedObstacles() {
+  let seed = 20261020;
+  const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const kinds = ['tree', 'rock', 'construction', 'barricade', 'debris'];
+  const result = [];
+  // Use interior points of the closed anchor loop and a lateral offset so
+  // hazards spawn on the drivable road instead of arbitrary world coordinates.
+  for (let i = 0; i < 24; i++) {
+    const segment = (i * 3 + 1) % CENTERLINE_ANCHORS.length;
+    const a = CENTERLINE_ANCHORS[segment];
+    const b = CENTERLINE_ANCHORS[(segment + 1) % CENTERLINE_ANCHORS.length];
+    const t = 0.25 + random() * 0.5;
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const length = Math.hypot(dx, dz) || 1;
+    const lateral = (random() - 0.5) * 9.5;
+    const x = a.x + dx * t + (dz / length) * lateral;
+    const z = a.z + dz * t - (dx / length) * lateral;
+    const kind = kinds[Math.floor(random() * kinds.length)];
+    const index = String(i + 1).padStart(2, '0');
+    const size = kind === 'tree' ? 3.2 : kind === 'construction' ? 4.5 : 2.8;
+    result.push({ id: `random-${kind}-${index}`, kind, x: Math.round(x * 10) / 10, z: Math.round(z * 10) / 10,
+      width: size, height: kind === 'tree' ? 5.5 : kind === 'rock' ? 1.8 : kind === 'cone' ? 1.2 : 1.4,
+      depth: kind === 'tree' ? 3.2 : kind === 'construction' ? 1.5 : 2.6 });
+  }
+  return result;
+}
+
 export const OBSTACLE_DEFINITIONS = Object.freeze([
-  { id: 'barrier-01', kind: 'barricade', x: 6.3, z: 118.8, width: 3.5, height: 1.3, depth: 1.2 },
-  { id: 'cones-01', kind: 'cone', x: 46.8, z: 184.5, width: 2.5, height: 1.2, depth: 2.5 },
-  { id: 'debris-01', kind: 'debris', x: 71.1, z: 297, width: 4, height: 1.2, depth: 3 },
-  { id: 'pipe-01', kind: 'pipe', x: 3.6, z: 373.5, width: 4.5, height: 0.8, depth: 1.3 },
-  { id: 'barrier-02', kind: 'barricade', x: -74.7, z: 499.5, width: 3.5, height: 1.3, depth: 1.2 },
-  { id: 'debris-02', kind: 'debris', x: -56.7, z: 585, width: 4, height: 1.2, depth: 3 },
-  { id: 'planks-01', kind: 'planks', x: 16.2, z: 657, width: 4.5, height: 0.5, depth: 1.2 },
-  { id: 'cones-02', kind: 'cone', x: 77.4, z: 765, width: 2.5, height: 1.2, depth: 2.5 },
-  { id: 'barrier-03', kind: 'barricade', x: 55.8, z: 882, width: 3.5, height: 1.3, depth: 1.2 },
-  { id: 'debris-03', kind: 'debris', x: -50.4, z: 999, width: 4, height: 1.2, depth: 3 },
-  { id: 'cones-03', kind: 'cone', x: -10.8, z: 1143, width: 2.5, height: 1.2, depth: 2.5 },
-  { id: 'barrier-04', kind: 'barricade', x: 31.5, z: 1278, width: 3.5, height: 1.3, depth: 1.2 },
+  // Original stable IDs retained for other team members' integrations.
+  { id: 'barrier-01', kind: 'barricade', x: 5, z: 70, width: 3.5, height: 1.3, depth: 1.2 },
+  { id: 'cones-01', kind: 'cone', x: 35, z: 205, width: 2.5, height: 1.2, depth: 2.5 },
+  { id: 'debris-01', kind: 'debris', x: 106, z: 410, width: 4, height: 1.2, depth: 3 },
+  { id: 'pipe-01', kind: 'pipe', x: 105, z: 600, width: 4.5, height: 0.8, depth: 1.3 },
+  { id: 'barrier-02', kind: 'barricade', x: 120, z: 820, width: 3.5, height: 1.3, depth: 1.2 },
+  { id: 'debris-02', kind: 'debris', x: 72, z: 985, width: 4, height: 1.2, depth: 3 },
+  { id: 'planks-01', kind: 'planks', x: -35, z: 1060, width: 4.5, height: 0.5, depth: 1.2 },
+  { id: 'cones-02', kind: 'cone', x: -142, z: 940, width: 2.5, height: 1.2, depth: 2.5 },
+  { id: 'barrier-03', kind: 'barricade', x: -150, z: 740, width: 3.5, height: 1.3, depth: 1.2 },
+  { id: 'debris-03', kind: 'debris', x: -115, z: 520, width: 4, height: 1.2, depth: 3 },
+  { id: 'cones-03', kind: 'cone', x: -75, z: 285, width: 2.5, height: 1.2, depth: 2.5 },
+  { id: 'barrier-04', kind: 'barricade', x: -28, z: 120, width: 3.5, height: 1.3, depth: 1.2 },
+  // Additional obstacles are generated with a fixed seed, so placements look
+  // varied but stay identical for every client and server build.
+  ...makeGeneratedObstacles(),
 ]);
 
 export const PICKUP_DEFINITIONS = Object.freeze([
