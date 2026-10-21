@@ -29,15 +29,18 @@ export class RaceAuthority {
     for (const p of playersList) {
       this.racers.set(p.id, {
         id: p.id,
-        name: p.name,
-        slot: p.slot,
+        name: p.name || "Racer",
+        slot: p.slot || 0,
+        character: p.character || "Ritam",
         lastCheckpointIndex: -1,
         progress: 0,
         finished: false,
         finishTime: null,
         disqualified: false,
         lastValidPacketTime: Date.now(),
-        lastPosition: { x: 0, y: 0, z: 0 }
+        position: { x: 0, y: 0, z: 0 },
+        rotation: 0,
+        speed: 0
       });
     }
   }
@@ -65,69 +68,61 @@ export class RaceAuthority {
     }, 1000);
   }
 
-  validateAndUpdatePlayer(socketId, payload) {
-    if (this.raceState !== "racing") return null;
-    const racer = this.racers.get(socketId);
-    if (!racer || racer.finished) return null;
+  validateAndUpdatePlayer(playerId, payload) {
+    const racer = this.racers.get(playerId);
+    if (!racer) return null;
 
-    const now = Date.now();
-    const dt = Math.max(0.001, (now - racer.lastValidPacketTime) / 1000);
-
-    // validate numeric integrity
-    const pos = payload.position;
-    if (!pos || typeof pos.x !== "number" || typeof pos.y !== "number" || typeof pos.z !== "number") {
-      return null;
-    }
-    if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y) || !Number.isFinite(pos.z)) {
-      return null;
+    // Validate and update 3D position
+    if (payload?.position && Number.isFinite(Number(payload.position.x))) {
+      racer.position = {
+        x: Number(payload.position.x),
+        y: Number(payload.position.y),
+        z: Number(payload.position.z)
+      };
     }
 
-    // calculate distance moved to reject impossible teleportation (> 80 units/sec)
-    const dx = pos.x - racer.lastPosition.x;
-    const dy = pos.y - racer.lastPosition.y;
-    const dz = pos.z - racer.lastPosition.z;
-    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    const speed = dist / dt;
-
-    if (racer.lastCheckpointIndex >= 0 && speed > 85) {
-      // reject impossible jump
-      return null;
+    // Validate rotation (yaw radians)
+    if (Number.isFinite(Number(payload?.rotation))) {
+      racer.rotation = Number(payload.rotation);
+    } else if (Number.isFinite(Number(payload?.yaw))) {
+      racer.rotation = Number(payload.yaw);
     }
 
-    racer.lastPosition = { x: pos.x, y: pos.y, z: pos.z };
-    racer.lastValidPacketTime = now;
+    // Validate speed
+    if (Number.isFinite(Number(payload?.speed))) {
+      racer.speed = Number(payload.speed);
+    }
 
-    // authoritative checkpoint validation
-    const claimedCp = Number(payload.lastCheckpointIndex);
-    if (Number.isInteger(claimedCp)) {
-      // allow next sequential checkpoint only
-      if (claimedCp === racer.lastCheckpointIndex + 1) {
-        racer.lastCheckpointIndex = claimedCp;
-
-        // check if finish gate reached
-        if (racer.lastCheckpointIndex === this.totalCheckpoints - 1) {
-          this.recordFinish(socketId);
-        }
+    // Update progress and checkpoints if provided
+    if (Number.isFinite(Number(payload?.progress))) {
+      racer.progress = Number(payload.progress);
+    }
+    if (Number.isInteger(payload?.lastCheckpointIndex)) {
+      racer.lastCheckpointIndex = payload.lastCheckpointIndex;
+      if (racer.lastCheckpointIndex >= this.totalCheckpoints - 1 && !racer.finished) {
+        this.recordFinish(playerId);
       }
     }
 
-    const claimedProgress = Number(payload.progress);
-    if (Number.isFinite(claimedProgress)) {
-      // keep monotonic progress
-      racer.progress = Math.max(racer.progress, claimedProgress);
+    // Update chosen character if transmitted
+    if (payload?.character) {
+      racer.character = String(payload.character).slice(0, 20);
     }
 
+    racer.lastValidPacketTime = Date.now();
+
     return {
-      peerId: socketId,
-      position: racer.lastPosition,
-      rotation: Number.isFinite(payload.rotation) ? payload.rotation : 0,
-      speed: Number.isFinite(payload.speed) ? payload.speed : 0,
-      boosting: Boolean(payload.boosting),
-      shieldActive: Boolean(payload.shieldActive),
-      endurance: Number.isFinite(payload.endurance) ? payload.endurance : 100,
-      boost: Number.isFinite(payload.boost) ? payload.boost : 0,
-      lastCheckpointIndex: racer.lastCheckpointIndex,
-      progress: racer.progress
+      playerId,
+      peerId: playerId,
+      name: String(payload?.name || racer.name || "Racer").slice(0, 20),
+      character: racer.character || "Ritam",
+      position: racer.position,
+      rotation: racer.rotation,
+      speed: racer.speed,
+      boosting: Boolean(payload?.boosting),
+      shieldActive: Boolean(payload?.shieldActive),
+      progress: racer.progress,
+      lastCheckpointIndex: racer.lastCheckpointIndex
     };
   }
 

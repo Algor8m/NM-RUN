@@ -40,6 +40,17 @@ const defaultPickups = Array.from({ length: 16 }, (_, i) => ({
   respawnSeconds: 10
 }));
 
+// Helper to broadcast personalized lobby updates to every player in a room
+function broadcastLobbyUpdate(roomCode) {
+  const room = lobbyManager.rooms.get(roomCode);
+  if (!room) return;
+
+  for (const [socketId] of room.players) {
+    const state = lobbyManager.getSanitizedLobbyState(roomCode, socketId);
+    io.to(socketId).emit("lobby:update", state);
+  }
+}
+
 io.on("connection", (socket) => {
   let currentRoomCode = null;
   let packetCounter = 0;
@@ -47,12 +58,12 @@ io.on("connection", (socket) => {
 
   socket.on("room:create", (payload) => {
     try {
-      const playerName = payload?.playerName || "Racer";
+      const playerName = payload?.playerName || payload?.name || "Racer";
       const { roomCode, room } = lobbyManager.createRoom(socket.id, playerName);
       currentRoomCode = roomCode;
       socket.join(roomCode);
 
-      socket.emit("lobby:update", lobbyManager.getSanitizedLobbyState(roomCode));
+      socket.emit("lobby:update", lobbyManager.getSanitizedLobbyState(roomCode, socket.id));
     } catch (err) {
       socket.emit("server:error", { message: "failed to create room" });
     }
@@ -60,8 +71,8 @@ io.on("connection", (socket) => {
 
   socket.on("room:join", (payload) => {
     try {
-      const roomCode = String(payload?.roomCode || "").toUpperCase().trim();
-      const playerName = payload?.playerName || "Racer";
+      const roomCode = String(payload?.roomCode || payload?.code || "").toUpperCase().trim();
+      const playerName = payload?.playerName || payload?.name || "Racer";
 
       const result = lobbyManager.joinRoom(roomCode, socket.id, playerName);
       if (result.error) {
@@ -71,7 +82,8 @@ io.on("connection", (socket) => {
 
       currentRoomCode = roomCode;
       socket.join(roomCode);
-      io.to(roomCode).emit("lobby:update", lobbyManager.getSanitizedLobbyState(roomCode));
+
+      broadcastLobbyUpdate(roomCode);
     } catch (err) {
       socket.emit("server:error", { message: "failed to join room" });
     }
@@ -79,10 +91,10 @@ io.on("connection", (socket) => {
 
   socket.on("lobby:ready", (payload) => {
     if (!currentRoomCode) return;
-    const isReady = Boolean(payload?.ready);
+    const isReady = Boolean(payload?.ready ?? payload?.isReady);
     const room = lobbyManager.setReady(socket.id, isReady);
     if (room) {
-      io.to(currentRoomCode).emit("lobby:update", lobbyManager.getSanitizedLobbyState(currentRoomCode));
+      broadcastLobbyUpdate(currentRoomCode);
     }
   });
 
@@ -101,7 +113,7 @@ io.on("connection", (socket) => {
     }
 
     room.status = "countdown";
-    io.to(currentRoomCode).emit("lobby:update", lobbyManager.getSanitizedLobbyState(currentRoomCode));
+    broadcastLobbyUpdate(currentRoomCode);
 
     const authority = new RaceAuthority(currentRoomCode, 12, defaultPickups);
     authority.initializeRacers([...room.players.values()]);
@@ -164,7 +176,7 @@ io.on("connection", (socket) => {
     }
     raceAuthorities.delete(currentRoomCode);
 
-    io.to(currentRoomCode).emit("lobby:update", lobbyManager.getSanitizedLobbyState(currentRoomCode));
+    broadcastLobbyUpdate(currentRoomCode);
   });
 
   socket.on("room:leave", () => {
@@ -185,7 +197,7 @@ io.on("connection", (socket) => {
     if (result.roomDestroyed) {
       raceAuthorities.delete(currentRoomCode);
     } else {
-      io.to(currentRoomCode).emit("lobby:update", lobbyManager.getSanitizedLobbyState(currentRoomCode));
+      broadcastLobbyUpdate(currentRoomCode);
       const authority = raceAuthorities.get(currentRoomCode);
       if (authority) {
         authority.racers.delete(s.id);

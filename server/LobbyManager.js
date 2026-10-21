@@ -3,6 +3,7 @@ export class LobbyManager {
     this.minPlayers = options.minPlayers || 2;
     this.maxPlayers = options.maxPlayers || 4;
     this.rooms = new Map();
+    this.defaultAvatars = ["Ritam", "Tanishi", "Yash", "Anjali"];
   }
 
   generateRoomCode() {
@@ -17,9 +18,13 @@ export class LobbyManager {
     return code;
   }
 
-  createRoom(hostSocketId, playerName) {
+  createRoom(hostSocketId, playerName, preferredAvatar = null) {
     const cleanName = String(playerName || "Player").trim().slice(0, 16) || "Racer";
     const roomCode = this.generateRoomCode();
+
+    const initialAvatar = this.defaultAvatars.includes(preferredAvatar)
+      ? preferredAvatar
+      : this.defaultAvatars[0];
 
     const room = {
       code: roomCode,
@@ -32,6 +37,7 @@ export class LobbyManager {
     room.players.set(hostSocketId, {
       id: hostSocketId,
       name: cleanName,
+      character: initialAvatar,
       isHost: true,
       isReady: false,
       slot: 0,
@@ -42,7 +48,7 @@ export class LobbyManager {
     return { roomCode, room };
   }
 
-  joinRoom(roomCode, socketId, playerName) {
+  joinRoom(roomCode, socketId, playerName, preferredAvatar = null) {
     const code = String(roomCode || "").toUpperCase().trim();
     const cleanName = String(playerName || "Player").trim().slice(0, 16) || "Racer";
 
@@ -59,16 +65,32 @@ export class LobbyManager {
       return { error: "room is full" };
     }
 
-    // find first free slot 0..3
+    // Fix 7: Reject duplicate usernames in the room (case-insensitive)
+    const isNameTaken = [...room.players.values()].some(
+      p => p.name.trim().toLowerCase() === cleanName.toLowerCase()
+    );
+    if (isNameTaken) {
+      return { error: "Username already taken in this room. Choose another name." };
+    }
+
+    // Assign first available slot (0..3)
     const occupiedSlots = new Set([...room.players.values()].map(p => p.slot));
     let slot = 0;
     while (occupiedSlots.has(slot) && slot < this.maxPlayers) {
       slot++;
     }
 
+    // Fix 7: Enforce unique avatars among connected players
+    const takenAvatars = new Set([...room.players.values()].map(p => p.character));
+    let assignedAvatar = preferredAvatar;
+    if (!assignedAvatar || takenAvatars.has(assignedAvatar) || !this.defaultAvatars.includes(assignedAvatar)) {
+      assignedAvatar = this.defaultAvatars.find(a => !takenAvatars.has(a)) || this.defaultAvatars[slot % this.defaultAvatars.length];
+    }
+
     room.players.set(socketId, {
       id: socketId,
       name: cleanName,
+      character: assignedAvatar,
       isHost: false,
       isReady: false,
       slot,
@@ -76,6 +98,29 @@ export class LobbyManager {
     });
 
     return { roomCode: code, room };
+  }
+
+  setCharacter(socketId, characterName) {
+    const room = this.getRoomBySocketId(socketId);
+    if (!room || room.status !== "lobby") return { error: "cannot change avatar right now" };
+
+    const player = room.players.get(socketId);
+    if (!player) return { error: "player not found" };
+
+    if (!this.defaultAvatars.includes(characterName)) {
+      return { error: "invalid character name" };
+    }
+
+    // Check if character is currently selected by another peer in the same room
+    const isTaken = [...room.players.values()].some(
+      p => p.id !== socketId && p.character === characterName
+    );
+    if (isTaken) {
+      return { error: "Avatar already selected by another player." };
+    }
+
+    player.character = characterName;
+    return { success: true, room };
   }
 
   setReady(socketId, isReady) {
@@ -113,7 +158,7 @@ export class LobbyManager {
       return { roomCode: room.code, roomDestroyed: true };
     }
 
-    // assign new host if host left
+    // Assign new host if the host left
     if (room.hostId === socketId) {
       const nextHost = room.players.values().next().value;
       room.hostId = nextHost.id;
@@ -132,22 +177,39 @@ export class LobbyManager {
     return null;
   }
 
-  getSanitizedLobbyState(roomCode) {
+  getSanitizedLobbyState(roomCode, recipientSocketId = null) {
     const room = this.rooms.get(roomCode);
     if (!room) return null;
 
+    const playersList = [...room.players.values()].map(p => ({
+      id: p.id,
+      name: p.name,
+      character: p.character || "Ritam",
+      isHost: p.isHost,
+      isReady: p.isReady,
+      slot: p.slot
+    }));
+
+    const me = recipientSocketId ? room.players.get(recipientSocketId) : null;
+    const takenCharacters = playersList.map(p => p.character);
+
     return {
+      code: room.code,
       roomCode: room.code,
       hostId: room.hostId,
       status: room.status,
       playerCount: room.players.size,
-      players: [...room.players.values()].map(p => ({
-        id: p.id,
-        name: p.name,
-        isHost: p.isHost,
-        isReady: p.isReady,
-        slot: p.slot
-      }))
+      players: playersList,
+      members: playersList,
+      takenCharacters,
+      you: me ? {
+        id: me.id,
+        name: me.name,
+        character: me.character || "Ritam",
+        isHost: me.isHost,
+        isReady: me.isReady,
+        slot: me.slot
+      } : null
     };
   }
 }

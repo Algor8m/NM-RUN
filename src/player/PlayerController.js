@@ -11,7 +11,7 @@ export const PLAYER_TUNING = Object.freeze({
   PLAYER_HEIGHT: 1.8,
   COLLISION_RETRY_SECONDS: 0.25,
   REMOTE_SMOOTHING: 12,
-  FALL_Y: -15
+  FALL_Y: -20
 });
 
 const ACTION_CODES = Object.freeze({
